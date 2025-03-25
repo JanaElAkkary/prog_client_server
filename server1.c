@@ -60,46 +60,52 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    // Receive username
-    memset(username, 0, BUFFER_SIZE);
-    int bytes_received = recv(new_socket, username, BUFFER_SIZE - 1, 0);
-    if (bytes_received <= 0) {
-        perror("Failed to receive username");
-        close(new_socket);
-        close(server_fd);
-        exit(EXIT_FAILURE);
-    }
-    username[bytes_received] = '\0';
+    int attempts=0;
+    while (attempts<2){
 
-    // Receive password
-    memset(password, 0, BUFFER_SIZE);
-    bytes_received = recv(new_socket, password, BUFFER_SIZE - 1, 0);
-    if (bytes_received <= 0) {
-        perror("Failed to receive password");
-        close(new_socket);
-        close(server_fd);
-        exit(EXIT_FAILURE);
-    }
-    password[bytes_received] = '\0'; 
-
-    printf("Received credentials - Username: %s, Password: %s\n", username, password);
-
-    // Authenticate user
-    if (authenticate(username, password)) {
-        send(new_socket, "Authentication successful", strlen("Authentication successful"), 0);
-
-        // Wait for client message after successful authentication
-        memset(buffer, 0, BUFFER_SIZE);
-        bytes_received = recv(new_socket, buffer, BUFFER_SIZE - 1, 0);
-        if (bytes_received > 0) {
-            buffer[bytes_received] = '\0';
-            printf("Client message: %s\n", buffer);
-            send(new_socket, "Message received", strlen("Message received"), 0);
+        // Receive username
+        memset(username, 0, BUFFER_SIZE);
+        int bytes_received = recv(new_socket, username, BUFFER_SIZE - 1, 0);
+        if (bytes_received <= 0) {
+            perror("Failed to receive username");
+            break;
         }
-        
-    } else {
-        send(new_socket, "Authentication failed", strlen("Authentication failed"), 0);
-    }
+        username[bytes_received] = '\0';
+
+        // Receive password
+        memset(password, 0, BUFFER_SIZE);
+        bytes_received = recv(new_socket, password, BUFFER_SIZE - 1, 0);
+        if (bytes_received <= 0) {
+            perror("Failed to receive password");
+            break;
+        }
+        password[bytes_received] = '\0'; 
+
+        printf("Received credentials - Username: %s, Password: %s\n", username, password);
+
+        // Authenticate user
+        if (authenticate(username, password)) {
+            send(new_socket, "Authentication successful", strlen("Authentication successful"), 0);
+
+            // Wait for client message after successful authentication
+            memset(buffer, 0, BUFFER_SIZE);
+            bytes_received = recv(new_socket, buffer, BUFFER_SIZE - 1, 0);
+            if (bytes_received > 0) {
+                buffer[bytes_received] = '\0';
+                printf("Client message: %s\n", buffer);
+                send(new_socket, "Message received", strlen("Message received"), 0);
+            }
+            break;
+            
+        } else {
+            attempts++;
+            if(attempts<2){
+                send(new_socket, "Wrong username or password. Try again", strlen("Wrong username or password. Try again"), 0);
+            }else{
+            send(new_socket, "Authentication failed", strlen("Authentication failed"), 0);
+            }
+        }
+    }   
 
     // Close sockets
     close(new_socket);

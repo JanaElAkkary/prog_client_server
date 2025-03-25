@@ -30,49 +30,56 @@ int main() {
         perror("Connection failed");
         exit(EXIT_FAILURE);
     }
+    int attempts=0;
+    while (attempts<2){
+        // Get username and password
+        printf("Enter username: ");
+        scanf("%s", username);
+        printf("Enter password: ");
+        scanf("%s", password);
 
-    // Get username and password
-    printf("Enter username: ");
-    scanf("%s", username);
-    printf("Enter password: ");
-    scanf("%s", password);
+        // Send username
+        send(sock, username, strlen(username), 0);
+        sleep(1); 
 
-    // Send username
-    send(sock, username, strlen(username), 0);
-    sleep(1); 
+        // Send password
+        send(sock, password, strlen(password), 0);
 
-    // Send password
-    send(sock, password, strlen(password), 0);
-
-    // Receive response from server
-    int bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
-    if (bytes_received > 0) {
-        buffer[bytes_received] = '\0'; 
-        printf("Server: %s\n", buffer);
-    } else {
-        printf("No response from server.\n");
-        close(sock);
-        return 0;
-    }
-
-    // If authentication was successful, send a message to the server
-    if (strcmp(buffer, "Authentication successful") == 0) {
-        getchar(); 
-        printf("Enter a message to send to the server: ");
-        fgets(message, BUFFER_SIZE, stdin);
-        message[strcspn(message, "\n")] = '\0'; 
-
-        send(sock, message, strlen(message), 0);
-
-        // Receive acknowledgment from server
-        memset(buffer, 0, BUFFER_SIZE);
-        bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
+        // Receive response from server
+        int bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
         if (bytes_received > 0) {
-            buffer[bytes_received] = '\0';
+            buffer[bytes_received] = '\0'; 
             printf("Server: %s\n", buffer);
+        } else {
+            printf("No response from server.\n");
+            close(sock);
+            return 0;
+        }
+
+        // If authentication was successful, send a message to the server
+        if (strcmp(buffer, "Authentication successful") == 0) {
+            getchar(); 
+            printf("Enter a message to send to the server: ");
+            fgets(message, BUFFER_SIZE, stdin);
+            message[strcspn(message, "\n")] = '\0'; 
+
+            send(sock, message, strlen(message), 0);
+
+            // Receive acknowledgment from server
+            memset(buffer, 0, BUFFER_SIZE);
+            bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
+            if (bytes_received > 0) {
+                buffer[bytes_received] = '\0';
+                printf("Server: %s\n", buffer);
+            }
+            break;
+        }else{
+            attempts++;
+            if (attempts == 2){
+                printf("Too many failed attempts. Closing connection.\n");
+            }
         }
     }
-
     // Close socket
     close(sock);
     return 0;

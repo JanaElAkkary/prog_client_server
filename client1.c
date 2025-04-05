@@ -3,15 +3,58 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/aes.h>
+#include <openssl/rand.h>
+#include <openssl/evp.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
+unsigned char aes_key[16];
+unsigned char aes_iv[16];
+
+void print_hex(const char *label, const unsigned char *data, int len) {
+    printf("%s", label);
+    for (int i = 0; i < len; i++) {
+        printf("%02x", data[i]);
+    }
+    printf("\n");
+}
+
+
+void encrypt(unsigned char *plaintext, unsigned char *ciphertext, int len) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int ciphertext_len, len_tmp;
+
+    if (!ctx) {
+        fprintf(stderr, "EVP_CIPHER_CTX_new failed\n");
+        return;
+    }
+
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, aes_key, aes_iv);
+    EVP_EncryptUpdate(ctx, ciphertext, &ciphertext_len, plaintext, len);
+    EVP_EncryptFinal_ex(ctx, ciphertext + ciphertext_len, &len_tmp);
+    ciphertext_len += len_tmp;
+
+    EVP_CIPHER_CTX_free(ctx);
+}
 
 int main() {
     int sock;
     struct sockaddr_in server_address;
     char buffer[BUFFER_SIZE] = {0};
+    unsigned char encrypted_user[BUFFER_SIZE], encrypted_pass[BUFFER_SIZE];
     char username[50], password[50], message[BUFFER_SIZE];
+
+    SSL_library_init();
+    SSL_load_error_strings();
+    SSL_CTX *ctx = SSL_CTX_new(SSLv23_client_method());
+
+    if (!ctx) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
 
     // Create socket
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -30,6 +73,23 @@ int main() {
         perror("Connection failed");
         exit(EXIT_FAILURE);
     }
+
+    SSL *ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, sock);
+
+    if (SSL_connect(ssl) <= 0) {
+        ERR_print_errors_fp(stderr);
+        close(sock);
+        SSL_free(ssl);
+        exit(EXIT_FAILURE);
+    }
+     // Generate random AES key and IV
+     RAND_bytes(aes_key, sizeof(aes_key));
+     RAND_bytes(aes_iv, sizeof(aes_iv));
+ 
+     SSL_write(ssl, aes_key, 16);
+     SSL_write(ssl, aes_iv, 16);
+
     int attempts=0;
     while (attempts<2){
         // Get username and password
@@ -38,15 +98,34 @@ int main() {
         printf("Enter password: ");
         scanf("%s", password);
 
-        // Send username
-        send(sock, username, strlen(username), 0);
-        sleep(1); 
+        int user_len = strlen(username);
+        int pass_len = strlen(password);
 
-        // Send password
-        send(sock, password, strlen(password), 0);
+        memset(encrypted_user, 0, BUFFER_SIZE);
+        memset(encrypted_pass, 0, BUFFER_SIZE);
+
+     
+        // Encrypt and print encrypted username
+        encrypt((unsigned char*)username, encrypted_user, user_len);
+        int enc_user_len = ((user_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+      
+        
+        // Encrypt and print encrypted password
+        encrypt((unsigned char*)password, encrypted_pass, pass_len);
+        int enc_pass_len = ((pass_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+   
+        
+        // Send encrypted data
+        SSL_write(ssl, &user_len, sizeof(int));
+        SSL_write(ssl, encrypted_user, enc_user_len);
+        
+        SSL_write(ssl, &pass_len, sizeof(int));
+        SSL_write(ssl, encrypted_pass, enc_pass_len);
+
+        memset(buffer, 0, BUFFER_SIZE);
 
         // Receive response from server
-        int bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
+        int bytes_received = SSL_read(ssl, buffer, BUFFER_SIZE - 1);
         if (bytes_received > 0) {
             buffer[bytes_received] = '\0'; 
             printf("Server: %s\n", buffer);
@@ -57,30 +136,41 @@ int main() {
         }
 
         // If authentication was successful, send a message to the server
-        if (strcmp(buffer, "Authentication successful") == 0) {
-            getchar(); 
+        if (strcmp((char*)buffer, "Authentication successful") == 0) {
+            getchar();
             printf("Enter a message to send to the server: ");
             fgets(message, BUFFER_SIZE, stdin);
-            message[strcspn(message, "\n")] = '\0'; 
+            message[strcspn(message, "\n")] = '\0';
+            int msg_len = strlen(message);
+            unsigned char encrypted_msg[BUFFER_SIZE];
+            encrypt((unsigned char*)message, encrypted_msg, msg_len);
+            int enc_msg_len = ((msg_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
 
-            send(sock, message, strlen(message), 0);
+            // Send length then encrypted message
+            SSL_write(ssl, &msg_len, sizeof(int));
+            SSL_write(ssl, encrypted_msg, enc_msg_len);
 
             // Receive acknowledgment from server
             memset(buffer, 0, BUFFER_SIZE);
-            bytes_received = read(sock, buffer, BUFFER_SIZE - 1);
+            bytes_received = SSL_read(ssl, buffer, BUFFER_SIZE - 1);
             if (bytes_received > 0) {
                 buffer[bytes_received] = '\0';
                 printf("Server: %s\n", buffer);
             }
             break;
-        }else{
+        } else {
             attempts++;
-            if (attempts == 2){
+            if (attempts == 2) {
                 printf("Too many failed attempts. Closing connection.\n");
             }
         }
     }
-    // Close socket
+    
+
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
     close(sock);
+    SSL_CTX_free(ctx);
     return 0;
 }
+

@@ -11,6 +11,7 @@
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
+
 unsigned char aes_key[16];
 unsigned char aes_iv[16];
 
@@ -51,44 +52,21 @@ int main() {
     SSL_load_error_strings();
     SSL_CTX *ctx = SSL_CTX_new(SSLv23_client_method());
 
-    if (!ctx) {
-        ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
-    }
-
-    // Create socket
     sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        perror("Socket failed");
-        exit(EXIT_FAILURE);
-    }
-
-    // Define server address
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(PORT);
-    server_address.sin_addr.s_addr = INADDR_ANY; // Connect to localhost
+    server_address.sin_addr.s_addr = INADDR_ANY;
 
-    // Connect to server
-    if (connect(sock, (struct sockaddr*)&server_address, sizeof(server_address)) < 0) {
-        perror("Connection failed");
-        exit(EXIT_FAILURE);
-    }
+    connect(sock, (struct sockaddr *)&server_address, sizeof(server_address));
 
     SSL *ssl = SSL_new(ctx);
     SSL_set_fd(ssl, sock);
+    SSL_connect(ssl);
 
-    if (SSL_connect(ssl) <= 0) {
-        ERR_print_errors_fp(stderr);
-        close(sock);
-        SSL_free(ssl);
-        exit(EXIT_FAILURE);
-    }
-     // Generate random AES key and IV
-     RAND_bytes(aes_key, sizeof(aes_key));
-     RAND_bytes(aes_iv, sizeof(aes_iv));
- 
-     SSL_write(ssl, aes_key, 16);
-     SSL_write(ssl, aes_iv, 16);
+    RAND_bytes(aes_key, sizeof(aes_key));
+    RAND_bytes(aes_iv, sizeof(aes_iv));
+    SSL_write(ssl, aes_key, 16);
+    SSL_write(ssl, aes_iv, 16);
 
     int attempts=0;
     while (attempts<2){

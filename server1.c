@@ -8,6 +8,8 @@
 #include <openssl/aes.h>
 #include <openssl/rand.h>
 #include <openssl/evp.h>
+#include <pthread.h>
+
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -15,10 +17,11 @@
 unsigned char aes_key[16];
 unsigned char aes_iv[16];
 
-const char *valid_users[2][2] = {
-    {"jana", "jana123"},
-    {"adham", "adham123"}
+struct client_info{
+    int socket;
+    SSL *ssl;
 };
+
 
 void print_hex(const char *label, const unsigned char *data, int len){
     printf("%s", label);
@@ -27,31 +30,114 @@ void print_hex(const char *label, const unsigned char *data, int len){
     printf ("\n");
 }
 
-void decrypt(unsigned char *ciphertext, unsigned char *plaintext, int len){
+void decrypt(unsigned char *ciphertext, unsigned char *plaintext, int len, unsigned char *key, unsigned char *iv){
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     int plaintext_len, len_tmp;
 
     if(!ctx){
-        fprintf(stderr,"EVP_CIPHER_CTX_new failed \n");
+        fprintf(stderr, "EVP_CIPHER_CTX_new failed\n");
         return;
     }
-   EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(),NULL, aes_key, aes_iv);
-   EVP_DecryptUpdate(ctx, plaintext, &plaintext_len, ciphertext, len);
-   EVP_DecryptFinal_ex(ctx,plaintext+plaintext_len, &len_tmp);
-   plaintext_len += len_tmp;
-   plaintext [plaintext_len]='\0';
-   EVP_CIPHER_CTX_free(ctx); 
+
+    EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv);
+    EVP_DecryptUpdate(ctx, plaintext, &plaintext_len, ciphertext, len);
+    EVP_DecryptFinal_ex(ctx, plaintext + plaintext_len, &len_tmp);
+    plaintext_len += len_tmp;
+    plaintext[plaintext_len] = '\0';
+    EVP_CIPHER_CTX_free(ctx);
 }
 
 int authenticate(const char *user, const char *pass) {
-    for (int i = 0; i < 2; i++) {
-        if (strcmp(user, valid_users[i][0]) == 0 && strcmp(pass, valid_users[i][1]) == 0) {
-            return 1; // Success
+    FILE *fp = fopen("users.txt", "r");
+    if (!fp) {
+        perror("[ERROR] Could not open users.txt");
+        return 0;
+    }
+
+    char stored_user[50], stored_pass[50];
+    while (fscanf(fp, "%s %s", stored_user, stored_pass) == 2) {
+        if (strcmp(user, stored_user) == 0 && strcmp(pass, stored_pass) == 0) {
+            fclose(fp);
+            return 1;
         }
     }
+
+    fclose(fp);
     return 0;
 }
+void *handle_client(void *arg) {
+    struct client_info *cinfo = (struct client_info *)arg;
+    SSL *ssl = cinfo->ssl;
+    int client_socket = cinfo->socket;
+    free(cinfo);
 
+
+
+    unsigned char aes_key[16];
+    unsigned char aes_iv[16];
+    unsigned char encrypted[BUFFER_SIZE], decrypted_user[BUFFER_SIZE], decrypted_pass[BUFFER_SIZE], buffer[BUFFER_SIZE];
+
+    SSL_read(ssl, aes_key, 16);
+    SSL_read(ssl, aes_iv, 16);
+
+
+    int attempts = 0;
+    while (attempts < 2) {
+        int user_len, pass_len;
+
+        // Receive and show encrypted username
+        SSL_read(ssl, &user_len, sizeof(int));
+        int enc_user_len = ((user_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+        SSL_read(ssl, encrypted, enc_user_len);
+        print_hex("Encrypted Username: ", encrypted, enc_user_len);
+
+        memset(decrypted_user, 0, BUFFER_SIZE);
+        decrypt(encrypted, decrypted_user, enc_user_len, aes_key, aes_iv);
+        printf("Decrypted Username: %s\n", decrypted_user);
+
+        // Receive and show encrypted password
+        SSL_read(ssl, &pass_len, sizeof(int));
+        int enc_pass_len = ((pass_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+        SSL_read(ssl, encrypted, enc_pass_len);
+        print_hex("Encrypted Password: ", encrypted, enc_pass_len);
+
+        memset(decrypted_pass, 0, BUFFER_SIZE);
+        decrypt(encrypted, decrypted_pass, enc_pass_len, aes_key, aes_iv);
+        printf("Decrypted Password: %s\n", decrypted_pass);
+
+        if (authenticate((char *)decrypted_user, (char *)decrypted_pass)) {
+            printf("Authentication successful\n");
+            SSL_write(ssl, "Authentication successful", strlen("Authentication successful"));
+
+            int msg_len;
+            SSL_read(ssl, &msg_len, sizeof(int));
+            int enc_msg_len = ((msg_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+            SSL_read(ssl, encrypted, enc_msg_len);
+            print_hex("Encrypted Message from Client: ", encrypted, enc_msg_len);
+
+            memset(buffer, 0, BUFFER_SIZE);
+            decrypt(encrypted, buffer, enc_msg_len, aes_key, aes_iv);
+            printf("Decrypted Client Message: %s\n", buffer);
+            SSL_write(ssl, "Message received", strlen("Message received"));
+            break;
+        } else {
+            printf("Authentication failed\n");
+            attempts++;
+            const char *msg = (attempts < 2)
+                ? "Wrong username or password. Try again"
+                : "Authentication failed";
+            SSL_write(ssl, msg, strlen(msg));
+        }
+    }
+
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+    close(client_socket);
+
+    printf("==================================== NEW CLIENT ====================================\n\n");
+
+    pthread_exit(NULL);
+    }
 int main() {
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -81,6 +167,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+
     // Define server address
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
@@ -100,85 +187,36 @@ int main() {
 
     printf("Server listening on port %d...\n", PORT);
 
-    // Accept client connection
-    new_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
-    if (new_socket < 0) {
-        perror("Accept failed");
-        exit(EXIT_FAILURE);
-    }
-
-    SSL *ssl = SSL_new(ctx);
-    SSL_set_fd(ssl, new_socket);
-
-    if (SSL_accept(ssl) <= 0) {
-        ERR_print_errors_fp(stderr);
-        close(new_socket);
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        exit(EXIT_FAILURE);
-    }
-
-    SSL_read(ssl, aes_key, 16);
-    SSL_read(ssl, aes_iv, 16);
-
-    int attempts=0;
-    while (attempts<2){
-        int user_len, pass_len;
-
-      // Receive and show encrypted username
-        SSL_read(ssl, &user_len, sizeof(int));
-        int enc_user_len = ((user_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
-        SSL_read(ssl, encrypted, enc_user_len);
-        print_hex("Encrypted Username: ", encrypted, enc_user_len);
-
-        // CLEAR BUFFER BEFORE decrypt()
-        memset(decrypted_user, 0, BUFFER_SIZE);
-        decrypt(encrypted, decrypted_user, enc_user_len);
-        printf("Decrypted Username: %s\n", decrypted_user);
+       // Multithreaded accept loop
+       while (1) {
 
 
-        // Receive and show encrypted password
-        SSL_read(ssl, &pass_len, sizeof(int));
-        int enc_pass_len = ((pass_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
-        SSL_read(ssl, encrypted, enc_pass_len);
-        print_hex("Encrypted Password: ", encrypted, enc_pass_len);
-
-        // CLEAR BUFFER BEFORE decrypt()
-        memset(decrypted_pass, 0, BUFFER_SIZE);
-        decrypt(encrypted, decrypted_pass, enc_pass_len);
-        printf("Decrypted Password: %s\n", decrypted_pass);
-
-
-        if (authenticate((char*)decrypted_user, (char*)decrypted_pass)) {
-            SSL_write(ssl, "Authentication successful", strlen("Authentication successful"));
-    
-            // Read final encrypted message
-            int msg_len;
-            SSL_read(ssl, &msg_len, sizeof(int));
-            int enc_msg_len = ((msg_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
-            SSL_read(ssl, encrypted, enc_msg_len);
-            print_hex("Encrypted Message from Client: ", encrypted, enc_msg_len);
-
-            //CLEAR BUFFER BEFORE decrypt()
-            memset(buffer, 0, BUFFER_SIZE);
-            decrypt(encrypted, buffer, enc_msg_len);
-            printf("Decrypted Client Message: %s\n", buffer);
-            SSL_write(ssl, "Message received", strlen("Message received"));
-            break;
-        } else {
-            attempts++;
-            const char *msg = (attempts < 2)
-                ? "Wrong username or password. Try again"
-                : "Authentication failed";
-            SSL_write(ssl, msg, strlen(msg));
+        new_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
+        if (new_socket < 0) {
+            perror("Accept failed");
+            continue;
         }
+
+        SSL *ssl = SSL_new(ctx);
+        SSL_set_fd(ssl, new_socket);
+
+        if (SSL_accept(ssl) <= 0) {
+            ERR_print_errors_fp(stderr);
+            close(new_socket);
+            SSL_free(ssl);
+            continue;
+        }
+
+        struct client_info *cinfo = malloc(sizeof(struct client_info));
+        cinfo->socket = new_socket;
+        cinfo->ssl = ssl;
+
+        pthread_t tid;
+        pthread_create(&tid, NULL, handle_client, (void *)cinfo);
+        pthread_detach(tid);
     }
 
     // Close sockets
-    
-    SSL_shutdown(ssl);
-    SSL_free(ssl);
-    close(new_socket);
     close(server_fd);
     SSL_CTX_free(ctx);
     printf("Server shutting down...\n");

@@ -135,6 +135,40 @@ int main() {
                 buffer[bytes_received] = '\0';
                 printf("Server: %s\n", buffer);
             }
+            // Ask if user wants to send a file
+            printf("Do you want to transfer the file 'text.txt'? (y/n): ");
+            char choice;
+            scanf(" %c", &choice);
+            getchar(); // Consume newline
+
+            if (choice == 'y' || choice == 'Y') {
+                FILE *fp = fopen("text.txt", "rb");
+                if (!fp) {
+                    perror("Failed to open text.txt");
+                } else {
+                    fseek(fp, 0, SEEK_END);
+                    long fsize = ftell(fp);
+                    rewind(fp);
+
+                    unsigned char *file_data = malloc(fsize);
+                    fread(file_data, 1, fsize, fp);
+                    fclose(fp);
+
+                    unsigned char *enc_file = calloc(1, ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE);
+                    encrypt(file_data, enc_file, fsize);
+                    int enc_file_len = ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+
+                    // Send length then encrypted file content
+                    SSL_write(ssl, &fsize, sizeof(int));
+                    SSL_write(ssl, enc_file, enc_file_len);
+
+                    printf("File sent successfully.\n");
+                    free(file_data);
+                    free(enc_file);
+                }
+            }
+
+
             break;
         } else {
             attempts++;

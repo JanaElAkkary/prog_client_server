@@ -119,6 +119,34 @@ void *handle_client(void *arg) {
             decrypt(encrypted, buffer, enc_msg_len, aes_key, aes_iv);
             printf("Decrypted Client Message: %s\n", buffer);
             SSL_write(ssl, "Message received", strlen("Message received"));
+            
+            // Ask if file is incoming (read file size first)
+            int file_size;
+            int file_read = SSL_read(ssl, &file_size, sizeof(int));
+            if (file_read == sizeof(int)) {
+                int enc_file_len = ((file_size / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+                unsigned char *enc_file = malloc(enc_file_len);
+                unsigned char *dec_file = calloc(1, enc_file_len + AES_BLOCK_SIZE);
+
+                int total_received = 0;
+                while (total_received < enc_file_len) {
+                    int r = SSL_read(ssl, enc_file + total_received, enc_file_len - total_received);
+                    if (r <= 0) break;
+                    total_received += r;
+                }
+
+                decrypt(enc_file, dec_file, enc_file_len, aes_key, aes_iv);
+
+                FILE *out = fopen("received_text.txt", "wb");
+                fwrite(dec_file, 1, file_size, out);
+                fclose(out);
+
+                printf("Received and saved file as received_text.txt\n");
+
+                free(enc_file);
+                free(dec_file);
+            }
+
             break;
         } else {
             printf("Authentication failed\n");

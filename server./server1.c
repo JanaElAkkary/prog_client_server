@@ -120,32 +120,59 @@ void *handle_client(void *arg) {
             printf("Decrypted Client Message: %s\n", buffer);
             SSL_write(ssl, "Message received", strlen("Message received"));
             
-            // Ask if file is incoming (read file size first)
-            int file_size;
-            int file_read = SSL_read(ssl, &file_size, sizeof(int));
-            if (file_read == sizeof(int)) {
-                int enc_file_len = ((file_size / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
-                unsigned char *enc_file = malloc(enc_file_len);
-                unsigned char *dec_file = calloc(1, enc_file_len + AES_BLOCK_SIZE);
-
-                int total_received = 0;
-                while (total_received < enc_file_len) {
-                    int r = SSL_read(ssl, enc_file + total_received, enc_file_len - total_received);
-                    if (r <= 0) break;
-                    total_received += r;
-                }
-
-                decrypt(enc_file, dec_file, enc_file_len, aes_key, aes_iv);
-
-                FILE *out = fopen("received_text.txt", "wb");
-                fwrite(dec_file, 1, file_size, out);
-                fclose(out);
-
-                printf("Received and saved file as received_text.txt\n");
-
-                free(enc_file);
-                free(dec_file);
-            }
+             // Receive filename length and name
+             int filename_len;
+             if (SSL_read(ssl, &filename_len, sizeof(int)) <= 0) return NULL;
+ 
+             char original_filename[100] = {0};
+             if (SSL_read(ssl, original_filename, filename_len) <= 0) return NULL;
+ 
+             printf("Receiving file: %s\n", original_filename);
+ 
+             // Receive file size and encrypted content
+             int file_size;
+             if (SSL_read(ssl, &file_size, sizeof(int)) <= 0) return NULL;
+ 
+             int enc_file_len = ((file_size / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+             unsigned char *enc_file = malloc(enc_file_len);
+             unsigned char *dec_file = calloc(1, enc_file_len + AES_BLOCK_SIZE);
+ 
+             int total_received = 0;
+             while (total_received < enc_file_len) {
+                 int r = SSL_read(ssl, enc_file + total_received, enc_file_len - total_received);
+                 if (r <= 0) break;
+                 total_received += r;
+             }
+ 
+             decrypt(enc_file, dec_file, enc_file_len, aes_key, aes_iv);
+ 
+             // Build unique filename based on input
+             char base_name[100];
+             snprintf(base_name, sizeof(base_name), "received_%.*s", (int)(strrchr(original_filename, '.') - original_filename), original_filename);
+ 
+             char out_filename[120];
+             int file_index = 1;
+             do {
+                 snprintf(out_filename, sizeof(out_filename), "%s%d.txt", base_name, file_index);
+                 FILE *test = fopen(out_filename, "r");
+                 if (test) {
+                     fclose(test);
+                     file_index++;
+                 } else {
+                     break;
+                 }
+             } while (1);
+ 
+             // Save the file
+             FILE *out = fopen(out_filename, "wb");
+             fwrite(dec_file, 1, file_size, out);
+             fclose(out);
+ 
+             printf("Saved received file as: %s\n", out_filename);
+             free(enc_file);
+             free(dec_file);
+         
+ 
 
             break;
         } else {

@@ -135,38 +135,48 @@ int main() {
                 buffer[bytes_received] = '\0';
                 printf("Server: %s\n", buffer);
             }
-            // Ask if user wants to send a file
-            printf("Do you want to transfer the file 'text.txt'? (y/n): ");
-            char choice;
-            scanf(" %c", &choice);
-            getchar(); // Consume newline
+           // Ask if user wants to send a file
+           printf("Do you want to transfer a file? (y/n): ");
+           char choice;
+           scanf(" %c", &choice);
+           getchar(); 
 
-            if (choice == 'y' || choice == 'Y') {
-                FILE *fp = fopen("text.txt", "rb");
-                if (!fp) {
-                    perror("Failed to open text.txt");
-                } else {
-                    fseek(fp, 0, SEEK_END);
-                    long fsize = ftell(fp);
-                    rewind(fp);
+           if (choice == 'y' || choice == 'Y') {
+               char filename[100];
+               printf("Choose a file to send (marketing.txt / finance.txt / IT.txt): ");
+               scanf("%s", filename);
+               getchar(); 
 
-                    unsigned char *file_data = malloc(fsize);
-                    fread(file_data, 1, fsize, fp);
-                    fclose(fp);
+               FILE *fp = fopen(filename, "rb");
+               if (!fp) {
+                   perror("Failed to open the selected file");
+               } else {
+                   // Send the filename length and name first
+                   int filename_len = strlen(filename);
+                   SSL_write(ssl, &filename_len, sizeof(int));
+                   SSL_write(ssl, filename, filename_len);
 
-                    unsigned char *enc_file = calloc(1, ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE);
-                    encrypt(file_data, enc_file, fsize);
-                    int enc_file_len = ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+                   fseek(fp, 0, SEEK_END);
+                   long fsize = ftell(fp);
+                   rewind(fp);
 
-                    // Send length then encrypted file content
-                    SSL_write(ssl, &fsize, sizeof(int));
-                    SSL_write(ssl, enc_file, enc_file_len);
+                   unsigned char *file_data = malloc(fsize);
+                   fread(file_data, 1, fsize, fp);
+                   fclose(fp);
 
-                    printf("File sent successfully.\n");
-                    free(file_data);
-                    free(enc_file);
-                }
-            }
+                   unsigned char *enc_file = calloc(1, ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE);
+                   encrypt(file_data, enc_file, fsize);
+                   int enc_file_len = ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
+
+                   // Send length then encrypted file content
+                   SSL_write(ssl, &fsize, sizeof(int));
+                   SSL_write(ssl, enc_file, enc_file_len);
+
+                   printf("File '%s' sent successfully.\n", filename);
+                   free(file_data);
+                   free(enc_file);
+               }
+           }
 
 
             break;

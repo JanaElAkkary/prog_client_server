@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "stdio.h": "c",
-        "rand.h": "c"
+        "rand.h": "c",
+        "err.h": "c",
+        "evp.h": "c"
     }
 }

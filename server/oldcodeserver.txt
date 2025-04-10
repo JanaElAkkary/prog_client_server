@@ -14,8 +14,33 @@
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
+
+void print_server_banner() {
+    printf("\033[38;5;206m");  // Start pink
+    printf("\n");
+    printf("╔════════════════════════════════════╗\n");
+    printf("║        JA HOLDING SERVER           ║\n");
+    printf("╠════════════════════════════════════╣\n");
+    printf("║  AES-128-CBC Encryption Enabled    ║\n");
+    printf("║  SSL Protocol Active               ║\n");
+    printf("║  Multithreading: ON                ║\n");
+    printf("║  Listening on port %-5d           ║\n", PORT);
+    printf("╚════════════════════════════════════╝\n\n");
+    // printf("\033[0m");     // Reset color
+}
+
 unsigned char aes_key[16];
 unsigned char aes_iv[16];
+
+void log_action(const char *username, const char *action) {
+    FILE *log_file = fopen("logs.txt", "a");
+    if (log_file) {
+        fprintf(log_file, "%s: %s\n", username, action);
+        fclose(log_file);
+    } else {
+        perror("[ERROR] Could not open logs.txt");
+    }
+}
 
 struct client_info{
     int socket;
@@ -65,6 +90,52 @@ int authenticate(const char *user, const char *pass) {
     fclose(fp);
     return 0;
 }
+int get_message_count(const char *username) {
+    char path[100];
+    snprintf(path, sizeof(path), "messages/%s.txt", username);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+
+    int count = 0;
+    char line[BUFFER_SIZE];
+    while (fgets(line, sizeof(line), fp)) count++;
+    fclose(fp);
+    return count;
+}
+
+void deliver_messages(const char *username) {
+    char path[100];
+    snprintf(path, sizeof(path), "messages/%s.txt", username);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return;
+
+    printf("\n\033[1;36m[Messages for %s]:\033[0m\n", username);
+    char line[BUFFER_SIZE];
+    while (fgets(line, sizeof(line), fp)) {
+        printf("  \033[38;5;206m%s\033[0m", line);
+    }
+    fclose(fp);
+    remove(path); // clear inbox
+}
+
+char* deliver_messages_to_client(const char *username) {
+    char path[100];
+    snprintf(path, sizeof(path), "messages/%s.txt", username);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return NULL;
+
+    static char all_msgs[BUFFER_SIZE * 10] = {0}; 
+    char line[BUFFER_SIZE];
+
+    while (fgets(line, sizeof(line), fp)) {
+        strcat(all_msgs, line);
+    }
+
+    fclose(fp);
+    remove(path); 
+    return all_msgs;
+}
+
 void *handle_client(void *arg) {
     struct client_info *cinfo = (struct client_info *)arg;
     SSL *ssl = cinfo->ssl;
@@ -76,6 +147,7 @@ void *handle_client(void *arg) {
     unsigned char aes_key[16];
     unsigned char aes_iv[16];
     unsigned char encrypted[BUFFER_SIZE], decrypted_user[BUFFER_SIZE], decrypted_pass[BUFFER_SIZE], buffer[BUFFER_SIZE];
+    char client_username[BUFFER_SIZE]; 
 
     SSL_read(ssl, aes_key, 16);
     SSL_read(ssl, aes_iv, 16);
@@ -89,24 +161,49 @@ void *handle_client(void *arg) {
         SSL_read(ssl, &user_len, sizeof(int));
         int enc_user_len = ((user_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
         SSL_read(ssl, encrypted, enc_user_len);
-        print_hex("Encrypted Username: ", encrypted, enc_user_len);
+        print_hex("\033[38;5;206mEncrypted Username: ", encrypted, enc_user_len);
+        fflush(stdout);
 
         memset(decrypted_user, 0, BUFFER_SIZE);
         decrypt(encrypted, decrypted_user, enc_user_len, aes_key, aes_iv);
-        printf("Decrypted Username: %s\n", decrypted_user);
+        strcpy(client_username, (char *)decrypted_user);
+        printf("\033[38;5;206mDecrypted Username: %s\n", decrypted_user);
+        fflush(stdout);
 
         // Receive and show encrypted password
         SSL_read(ssl, &pass_len, sizeof(int));
         int enc_pass_len = ((pass_len / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
         SSL_read(ssl, encrypted, enc_pass_len);
-        print_hex("Encrypted Password: ", encrypted, enc_pass_len);
+        print_hex("\033[38;5;206mEncrypted Password: ", encrypted, enc_pass_len);
+        fflush(stdout);
+
 
         memset(decrypted_pass, 0, BUFFER_SIZE);
         decrypt(encrypted, decrypted_pass, enc_pass_len, aes_key, aes_iv);
-        printf("Decrypted Password: %s\n", decrypted_pass);
+        printf("\033[38;5;206mDecrypted Password: %s\n", decrypted_pass);
+        fflush(stdout);
+
+
 
         if (authenticate((char *)decrypted_user, (char *)decrypted_pass)) {
-            printf("Authentication successful\n");
+            log_action(client_username, "authenticated successfully");
+            // printf("Authentication successful\n");
+            printf("\033[1;32m[✔] Authentication successful!\033[0m\033[38;5;206m\n");
+            if (access("messages", F_OK) == -1) {
+                mkdir("messages", 0777); 
+            }
+
+            char *inbox = deliver_messages_to_client(client_username);
+            int has_messages = inbox && strlen(inbox) > 0;
+            SSL_write(ssl, &has_messages, sizeof(int));
+            if (has_messages) {
+                int msg_len = strlen(inbox);
+                SSL_write(ssl, &msg_len, sizeof(int));
+                SSL_write(ssl, inbox, msg_len);
+            }
+            int msg_count = get_message_count(client_username);
+            SSL_write(ssl, &msg_count, sizeof(int));
+
             SSL_write(ssl, "Authentication successful", strlen("Authentication successful"));
 
             int msg_len;
@@ -176,14 +273,28 @@ void *handle_client(void *arg) {
 
             break;
         } else {
-            printf("Authentication failed\n");
+            // printf("Authentication failed\n");
+            printf("\033[1;31m[✖] Authentication failed!\033[0m\033[38;5;206m\n");
+
+
+ 
+
             attempts++;
-            const char *msg = (attempts < 2)
-                ? "Wrong username or password. Try again"
-                : "Authentication failed";
+            // const char *msg = (attempts < 2)
+            //     ? "Wrong username or password. Try again"
+            //     : "Authentication failed";
+            // SSL_write(ssl, msg, strlen(msg));
+            const char *msg;
+            if (attempts < 1) {
+                printf("\033[38;5;196m[!] Wrong username or password. Try again\033[0m\n");  // Light red, not bold
+                msg = "Wrong username or password. Try again";
+            } else {
+                msg = "Authentication failed";
+            }
             SSL_write(ssl, msg, strlen(msg));
-        }
+
     }
+}
 
     SSL_shutdown(ssl);
     SSL_free(ssl);
@@ -194,6 +305,8 @@ void *handle_client(void *arg) {
     pthread_exit(NULL);
     }
 int main() {
+    print_server_banner();
+
     int server_fd, new_socket;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
@@ -240,7 +353,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    printf("Server listening on port %d...\n", PORT);
+    // printf("Server listening on port %d...\n", PORT);
 
        // Multithreaded accept loop
        while (1) {

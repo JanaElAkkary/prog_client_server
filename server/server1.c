@@ -165,7 +165,7 @@ void *handle_client(void *arg) {
         decrypt(encrypted, decrypted_user, enc_user_len, aes_key, aes_iv);
         strcpy(client_username, (char *)decrypted_user);
         printf("\033[38;5;206mDecrypted Username: %s\n", decrypted_user);
-        fflush(stdout);
+        // fflush(stdout);
         
 
         SSL_read(ssl, &pass_len, sizeof(int));
@@ -174,7 +174,7 @@ void *handle_client(void *arg) {
         memset(decrypted_pass, 0, BUFFER_SIZE);
         decrypt(encrypted, decrypted_pass, enc_pass_len, aes_key, aes_iv);
         printf("\033[38;5;206mDecrypted Password: %s\n", decrypted_pass);
-        fflush(stdout);
+        // fflush(stdout);
         
 
         if (authenticate((char *)decrypted_user, (char *)decrypted_pass)) {
@@ -203,12 +203,22 @@ void *handle_client(void *arg) {
 
                 switch (menu_choice) {
                     case 1: {
-                        printf("\033[38;5;206m Client entered FTP submenu.\n");
+                        printf("Client entered FTP submenu.\n");
                         log_action(client_username, "entered FTP menu");
 
                         int filename_len;
                         if (SSL_read(ssl, &filename_len, sizeof(int)) <= 0) break;
 
+                        if (filename_len == -1) {
+                            printf("Client exited FTP submenu.\n");
+                            log_action(client_username, "exited FTP submenu");
+                        
+                            msg_count = get_message_count(client_username);  
+                            SSL_write(ssl, &msg_count, sizeof(int));         
+                        
+                            break;
+                        }
+                        
                         char original_filename[100] = {0};
                         if (SSL_read(ssl, original_filename, filename_len) <= 0) break;
 
@@ -261,7 +271,7 @@ void *handle_client(void *arg) {
                         break;
                     }
                     case 2: {
-                        printf("\033[38;5;206m Client selected Message Sending.\n");
+                        printf(" Client selected Message Sending.\n");
                         log_action(client_username, "selected Message Sending");
                     
                         int msg_type;
@@ -288,7 +298,7 @@ void *handle_client(void *arg) {
                             char log_msg[BUFFER_SIZE + 100];
                             snprintf(log_msg, sizeof(log_msg), "\033[38;5;206msent message to server: \"%s\"", dec_msg);
                             log_action(client_username, log_msg);
-                            SSL_write(ssl, "\033[38;5;206mMessage delivered to server", strlen("Message delivered to server"));
+                            SSL_write(ssl, "Message delivered to server", strlen("Message delivered to server"));
                     
                             free(enc_msg);
                             free(dec_msg);
@@ -322,11 +332,11 @@ void *handle_client(void *arg) {
                             if (fp) {
                                 fprintf(fp, "From %s: %s\n", client_username, dec_msg);
                                 fclose(fp);
-                                log_action(client_username, "\033[38;5;206msent message to another client");
-                                SSL_write(ssl, "\033[38;5;206mMessage sent to client", strlen("Message sent to client"));
+                                log_action(client_username, "sent message to another client");
+                                SSL_write(ssl, "Message sent to client", strlen("Message sent to client"));
                             } else {
                                 log_action(client_username, "failed to message client: Unable to open file");
-                                SSL_write(ssl, "\033[38;5;206mFailed to send message: Unable to write to file", strlen("Failed to send message"));
+                                SSL_write(ssl, "Failed to send message: Unable to write to file", strlen("Failed to send message"));
                             }
                             
                     
@@ -342,11 +352,11 @@ void *handle_client(void *arg) {
                     
                         
                     case 3:
-                        printf(" \033[38;5;206mClient exited the application.\n");
+                        printf(" Client exited the application.\n");
                         log_action(client_username, "exited the application");
                         goto end_session;
                     default:
-                        printf("\033[38;5;206m Client selected unknown main menu option.\n");
+                        printf("Client selected unknown main menu option.\n");
                         log_action(client_username, "selected unknown main menu option");
                         break;
                 }

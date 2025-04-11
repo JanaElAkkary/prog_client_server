@@ -3,3 +3,17 @@ jana: authenticated successfully
 jana: entered FTP menu
 jana: transferring a file
 jana: [38;5;206muploaded file and saved as [38;5;206m[38;5;206mreceived_IT1.txt
+jana: authenticated successfully
+jana: selected Message Sending
+jana: sent message to another client
+jana: entered FTP menu
+jana: authenticated successfully
+jana: entered FTP menu
+jana: authenticated successfully
+jana: entered FTP menu
+jana: exited FTP submenu
+jana: exited the application
+bob: authenticated successfully
+adham: authenticated successfully
+bob: exited the application
+adham: exited the application

@@ -206,7 +206,7 @@ int main() {
 
                                     int filename_len = strlen(filename);
                                     int enc_file_len = ((fsize / AES_BLOCK_SIZE) + 1) * AES_BLOCK_SIZE;
-
+                                    
                                     unsigned char *enc_file = calloc(1, enc_file_len);
                                     encrypt(file_data, enc_file, fsize);
 
@@ -269,6 +269,8 @@ int main() {
                             
                             else if (ftp_choice == 5) {
                                 printf("\033[38;5;182mReturning to main menu...\033[0m\n");
+                                int ftp_exit_signal = -1;
+                                SSL_write(ssl, &ftp_exit_signal, sizeof(int));
                                 break;
                             }
                             else {
@@ -349,7 +351,7 @@ int main() {
 
                 }
 
-                break;  // exit login loop
+                break;  // exit in loop
 
 
 

@@ -17,3 +17,5 @@ bob: authenticated successfully
 adham: authenticated successfully
 bob: exited the application
 adham: exited the application
+bob: authenticated successfully
+bob: exited the application

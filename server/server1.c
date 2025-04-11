@@ -276,6 +276,15 @@ void *handle_client(void *arg) {
                     
                         int msg_type;
                         if (SSL_read(ssl, &msg_type, sizeof(int)) <= 0) break;
+
+                        if (msg_type == 3) {
+                            printf("Client exited Message submenu.\n");
+                            log_action(client_username, "exited Message submenu");
+                        
+                            msg_count = get_message_count(client_username);  
+                            SSL_write(ssl, &msg_count, sizeof(int));
+                            break;
+                        }
                     
                         if (msg_type == 1) {
                             int msg_len;
@@ -368,8 +377,14 @@ void *handle_client(void *arg) {
         } else {
             printf("\033[1;31m[\u2716] Authentication failed!\033[0m\033[38;5;206m\n");
             attempts++;
-            const char *msg = (attempts < 1) ? "\033[38;5;206mWrong username or password. Try again" : "Authentication failed";
-            SSL_write(ssl, msg, strlen(msg));
+            if (attempts < 2) {
+                const char *msg = "Wrong username or password. Try again";
+                SSL_write(ssl, msg, strlen(msg));
+            } else {
+                const char *msg = "Authentication failed";
+                SSL_write(ssl, msg, strlen(msg));
+                goto end_session;  
+            }
         }
     }
 

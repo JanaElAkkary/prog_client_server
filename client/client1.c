@@ -281,13 +281,21 @@ int main() {
                     else if (choice == 2) {
                         int msg_choice;
                         printf("\n\033[1m\033[90m===== MESSAGE MENU =====\033[0m\n");
-                        printf("\033[38;5;182m1. Send to server\n2. Send to another client\n\033[0m");
+                        printf("\033[38;5;182m1. Send to server\n2. Send to another client\n 3.Return to main menu\n\033[0m");
                         printf("\033[1m\033[90m========================\033[0m\n");
                         printf("\033[38;5;182mEnter your message option: \033[0m");
                         scanf("%d", &msg_choice);
+                        getchar(); 
+
+                        if (msg_choice == 3) {
+                            printf("\033[38;5;182mReturning to main menu...\033[0m\n");
+                            SSL_write(ssl, &msg_choice, sizeof(int)); // still send to server to maintain sync
+                            continue;
+                        }
+
                         SSL_write(ssl, &msg_choice, sizeof(int));
                     
-                        getchar(); // clear newline from stdin
+                       
                     
                         if (msg_choice == 1) {
                             char message[BUFFER_SIZE];
@@ -351,27 +359,25 @@ int main() {
 
                 }
 
-                break;  // exit in loop
-
-
-
-
-
-            if (strcmp(buffer, "Authentication failed") == 0) {
-                printf("\033[1;31m[✖] Authentication failed!\033[0m\033[38;5;182m\n"); 
+                break; 
 
             } else if (strstr(buffer, "Try again") != NULL) {
                 printf("\033[38;5;196m[!] Wrong username or password. Try again\033[0m\033[38;5;182m\n");
 
-            } else {
-                printf("Server: %s\n", buffer);
-            }
+            } else if (strstr(buffer, "Authentication failed") != NULL) {
+                printf("\033[1;31m[✖] Authentication failed!\033[0m\033[38;5;182m\n"); 
+                break;
             
+            
+            }else {
+                printf("Unexpected response: %s\n", buffer);
+                break;
+            }
         } else {
             printf("No response from server.\n");
-            close(sock);
-            return 0;
+            break;
         }
+    
         
 
 
@@ -441,13 +447,8 @@ int main() {
         //    }
 
 
-            break;
-        } else {
-            attempts++;
-            if (attempts == 2) {
-                printf("Too many failed attempts. Closing connection.\n");
-            }
-        }
+         
+        
     }
     
 

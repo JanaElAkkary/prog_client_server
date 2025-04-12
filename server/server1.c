@@ -73,6 +73,27 @@ void decrypt(unsigned char *ciphertext, unsigned char *plaintext, int len, unsig
     plaintext[plaintext_len] = '\0';
     EVP_CIPHER_CTX_free(ctx);
 }
+int is_path_accessible(const char *path, const char *role, const char *dept) {
+    if (strcmp(role, "Top") == 0) return 1;  // Top can access everything
+
+    // Entry: can only read from their department client folder
+    if (strcmp(role, "Entry") == 0) {
+        char expected_path[100];
+        snprintf(expected_path, sizeof(expected_path), "client/%s_c/", dept);
+        return strstr(path, expected_path) != NULL;
+    }
+
+    // Medium: can access their department folder in client and server
+    if (strcmp(role, "Medium") == 0) {
+        char client_path[100], server_path[100];
+        snprintf(client_path, sizeof(client_path), "client/%s_c/", dept);
+        snprintf(server_path, sizeof(server_path), "server/%s_s/", dept);
+        return strstr(path, client_path) != NULL || strstr(path, server_path) != NULL;
+    }
+
+    return 0;  
+}
+
 
 int authenticate(const char *user, const char *pass, char *role, char *dept) {
     FILE *fp = fopen("users.txt", "r");
@@ -261,6 +282,12 @@ void *handle_client(void *arg) {
                                 break;
                             }
                         } while (1);
+
+                        if (!is_path_accessible(out_filename, user_role, user_dept)) {
+                            log_action(client_username, "unauthorized path access attempt");
+                            SSL_write(ssl, "Access Denied: You are not authorized to write here.", strlen("Access Denied"));
+                            break;
+                        }
 
                         FILE *out = fopen(out_filename, "wb");
                         fwrite(dec_file, 1, file_size, out);

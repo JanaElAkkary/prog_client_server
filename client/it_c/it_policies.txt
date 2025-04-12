@@ -1,0 +1,1 @@
+The IT policies outline acceptable use, data handling, incident response, and access control procedures. Employees must adhere to guidelines for password hygiene, secure data transfer, and system maintenance, in alignment with JA Holding’s cybersecurity compliance framework.

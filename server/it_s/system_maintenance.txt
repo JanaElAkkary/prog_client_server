@@ -1,0 +1,1 @@
+The IT team performs scheduled maintenance every second Saturday to ensure optimal system performance and patch critical vulnerabilities. Downtime is minimized and communicated in advance, maintaining uptime SLAs of over 99.9%.

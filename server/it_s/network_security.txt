@@ -1,0 +1,1 @@
+JA Holding employs layered network security protocols including intrusion detection systems, end-to-end encryption, and routine vulnerability assessments. Regular penetration tests are conducted to proactively defend against evolving cyber threats.

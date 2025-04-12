@@ -74,16 +74,18 @@ void decrypt(unsigned char *ciphertext, unsigned char *plaintext, int len, unsig
     EVP_CIPHER_CTX_free(ctx);
 }
 
-int authenticate(const char *user, const char *pass) {
+int authenticate(const char *user, const char *pass, char *role, char *dept) {
     FILE *fp = fopen("users.txt", "r");
     if (!fp) {
         perror("[ERROR] Could not open users.txt");
         return 0;
     }
 
-    char stored_user[50], stored_pass[50];
-    while (fscanf(fp, "%s %s", stored_user, stored_pass) == 2) {
+    char stored_user[50], stored_pass[50],stored_role[20],stored_dept[30];
+    while (fscanf(fp, "%s %s", stored_user, stored_pass,stored_role,stored_dept) == 4) {
         if (strcmp(user, stored_user) == 0 && strcmp(pass, stored_pass) == 0) {
+            strcpy(role,stored_role);
+            strcpy(dept,stored_dept);
             fclose(fp);
             return 1;
         }
@@ -150,6 +152,7 @@ void *handle_client(void *arg) {
     unsigned char aes_iv[16];
     unsigned char encrypted[BUFFER_SIZE], decrypted_user[BUFFER_SIZE], decrypted_pass[BUFFER_SIZE], buffer[BUFFER_SIZE];
     char client_username[BUFFER_SIZE]; 
+    char user_role[20], user_dept[30];
 
     SSL_read(ssl, aes_key, 16);
     SSL_read(ssl, aes_iv, 16);
@@ -177,7 +180,8 @@ void *handle_client(void *arg) {
         // fflush(stdout);
         
 
-        if (authenticate((char *)decrypted_user, (char *)decrypted_pass)) {
+        if (authenticate((char *)decrypted_user, (char *)decrypted_pass,user_role,user_dept)) {
+            printf("Authenticated Role: %s | Department: %s\n", user_role, user_dept);
             log_action(client_username, "authenticated successfully");
             printf("\033[1;32m[\u2714] Authentication successful!\033[0m\033[38;5;206m\n");
             SSL_write(ssl, "Authentication successful", strlen("Authentication successful"));
